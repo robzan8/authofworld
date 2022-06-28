@@ -1,0 +1,1 @@
+PORT=5000 go run server/main.go

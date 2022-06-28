@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+{{template "head" "Auth of World"}}
+
+<body>
+{{if eq .userName ""}}
+	Login here!
+{{else}}
+	Welcome {{.userName}} :)
+{{end}}
+</body>
+
+</html>
