@@ -4,75 +4,91 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"errors"
+	"net/http"
 	"sync"
 	"time"
 )
 
-func GenerateUuid() (string, error) {
-	var b [16]byte
+const SessionCookieName = "session"
+
+// TODO: locality
+// https://eager.io/blog/how-long-does-an-id-need-to-be/
+func GenerateId() (string, error) {
+	var b [12]byte
 	_, err := rand.Read(b[:])
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(b[:]), nil
+	return base64.URLEncoding.EncodeToString(b[:]), nil
 }
 
-type user struct {
-	email          string
-	hashedPassword string
+type User struct {
+	Email          string
+	HashedPassword string
 }
 
-func GetUser(email string) (user, error) {
-	if email == "" {
-		return user{}, errors.New("GetUser: no email")
-	}
+func GetUser(email string) User {
 	if email == "rolex@rolex.com" {
-		return user{"rolex@rolex.com", HashPassword("hello")}, nil
+		return User{"rolex@rolex.com", HashPassword("hello")}
 	}
-	return user{}, errors.New("Invalid email or password")
+	return User{}
 }
 
 type Session struct {
 	Id      string
+	Email   string
 	Expires time.Time
 }
 
 // TODO: remove expired sessions and extend active sessions.
 var (
 	sessionsMu sync.Mutex
-	sessions   map[string]Session // maps email to session
+	sessions   = make(map[string]Session) // maps session IDs to sessions
 )
 
 func HashPassword(p string) string {
 	hash := sha256.Sum256([]byte(p))
-	return base64.StdEncoding.EncodeToString(hash[:])
+	return base64.URLEncoding.EncodeToString(hash[:])
 }
 
-func Login(email, password string) (Session, error) {
-	user, err := GetUser(email)
+// Security vulnerability here:
+// A malicious client could keep logging-in and discarding session cookies,
+// creating an unbound number of sessions on the server.
+func CreateSession(email string) (Session, error) {
+	id, err := GenerateId()
 	if err != nil {
 		return Session{}, err
 	}
-	hash := HashPassword(password)
-	if hash != user.hashedPassword {
-		return Session{}, errors.New("Invalid email or password")
-	}
-	newId, err := GenerateUuid()
-	if err != nil {
-		return Session{}, err
-	}
-	newId = email + ":" + newId
-	expires := time.Now().Add(8 * time.Hour)
+	var s Session
+	s.Id = id
+	s.Email = email
+	s.Expires = time.Now().Add(8 * time.Hour)
 
 	sessionsMu.Lock()
 	defer sessionsMu.Unlock()
 
-	s, ok := sessions[email]
-	if !ok {
-		s.Id = newId
-	}
-	s.Expires = expires
-	sessions[email] = s
+	sessions[id] = s
 	return s, nil
+}
+
+func LookupSession(id string) Session {
+	sessionsMu.Lock()
+	defer sessionsMu.Unlock()
+
+	return sessions[id]
+}
+
+func DeleteSession(id string) {
+	sessionsMu.Lock()
+	defer sessionsMu.Unlock()
+
+	delete(sessions, id)
+}
+
+func LoggedUser(req *http.Request) (email string) {
+	cookie, err := req.Cookie(SessionCookieName)
+	if err != nil {
+		return ""
+	}
+	return LookupSession(cookie.Value).Email
 }

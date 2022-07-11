@@ -1,45 +1,15 @@
 <!DOCTYPE html>
 <html>
-<head>
-<meta charset="utf-8">
-<title>gnumail</title>
-<style>
-form {
-	width: 600px;
-	display: grid;
-	grid-template-columns: auto 350px;
-	gap: 13px;
-	margin-top: 20px;
-	margin-bottom: 20px;
-}
-form > span {
-	text-align: right;
-}
-</style>
-</head>
+	{{template "head" "Auth of World - Login"}}
 
 <body>
-<form enctype="multipart/form-data" action="/send" method="post">
-	<span>Indirizzo mittente:</span>
-	<input type="text" name="senderAddr" required>
-	<span>Nome mittente:</span>
-	<input type="text" name="senderName">
-	<span>Indirizzo destinatario:</span>
-	<input type="text" name="recipientAddr" required>
-	<span>Nome destinatario:</span>
-	<input type="text" name="recipientName">
-	<span>Oggetto:</span>
-	<input type="text" name="subject" required>
-	<span>Contenuto (testo):</span>
-	<textarea name="textContent" rows="5"></textarea>
-	<span>Contenuto (html):</span>
-	<textarea name="htmlContent" rows="5"></textarea>
-	<span>GraphQL URL:</span>
-	<input type="text" name="graphqlUrl"
-	  placeholder="environment.dataConfig.syncGraphQLUrl" required>
-	<span>Auth token:</span>
-	<input type="text" name="authToken"
-	  placeholder="AuthService.authToken.getValue()" required>
+<form enctype="multipart/form-data" action="/login" method="post">
+	<span>Email:</span>
+	<input type="email" name="email" required>
+	<br>
+	<span>Password:</span>
+	<input type="password" name="password">
+	<br>
 	<span></span>
 	<input type="submit" value="Go!">
 </form>
