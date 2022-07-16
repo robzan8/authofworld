@@ -66,6 +66,7 @@ func main() {
 	http.HandleFunc("/login", loginHandler)
 	http.HandleFunc("/logout", restrictMethod(logoutHandler, http.MethodGet))
 	http.HandleFunc("/create-certificates", restrictMethod(createCertsHandler, http.MethodGet))
+	http.HandleFunc("/certificates", certsHandler)
 
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
@@ -243,8 +244,11 @@ func certsPost(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// TODO: create certificates in mongo
+	err = CreateCertificates(numCerts, email, desc)
+	if err != nil {
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintln(w, "Login was successful :)")
+	fmt.Fprintf(w, "%d certificates created!", numCerts)
 }

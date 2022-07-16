@@ -1,1 +1,1 @@
-PORT=5000 go run server/main.go
+PORT=5000 go run server/main.go server/sessions.go server/certificates.go
