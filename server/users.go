@@ -1,15 +1,47 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"net/http"
 	"sync"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
-const SessionCookieName = "session"
+var users *mongo.Collection
+
+type User struct {
+	Email          string `bson:"email"`
+	HashedPassword string `bson:"hashedPassword"`
+	Role           Role   `bson:"role"`
+}
+
+func HashPassword(p string) string {
+	hash := sha256.Sum256([]byte(p))
+	return base64.URLEncoding.EncodeToString(hash[:])
+}
+
+type Role string
+
+const (
+	Regular  Role = ""
+	Business      = "business"
+	Admin         = "admin"
+)
+
+func FindUser(email string) *User {
+	user := new(User)
+	err := users.FindOne(context.TODO(), bson.D{{"email", email}}).Decode(user)
+	if err != nil {
+		return nil
+	}
+	return user
+}
 
 // https://eager.io/blog/how-long-does-an-id-need-to-be/
 func GenerateId() (string, error) {
@@ -28,46 +60,29 @@ func GenerateId() (string, error) {
 	return base64.URLEncoding.EncodeToString(b[:]), nil
 }
 
-type User struct {
-	Email          string
-	HashedPassword string
-}
-
-func GetUser(email string) User {
-	if email == "rolex@rolex.com" {
-		return User{"rolex@rolex.com", HashPassword("hello")}
-	}
-	return User{}
-}
-
 type Session struct {
 	Id      string
-	Email   string
+	User    *User
 	Expires time.Time
 }
 
 // TODO: remove expired sessions and extend active sessions.
 var (
 	sessionsMu sync.Mutex
-	sessions   = make(map[string]Session) // maps session IDs to sessions
+	sessions   = make(map[string]*Session) // maps session IDs to sessions
 )
-
-func HashPassword(p string) string {
-	hash := sha256.Sum256([]byte(p))
-	return base64.URLEncoding.EncodeToString(hash[:])
-}
 
 // Security vulnerability here:
 // A malicious client could keep logging-in and discarding session cookies,
 // creating an unbound number of sessions on the server.
-func CreateSession(email string) (Session, error) {
+func CreateSession(user *User) (*Session, error) {
 	id, err := GenerateId()
 	if err != nil {
-		return Session{}, err
+		return nil, err
 	}
-	var s Session
+	s := new(Session)
 	s.Id = id
-	s.Email = email
+	s.User = user
 	s.Expires = time.Now().Add(8 * time.Hour)
 
 	sessionsMu.Lock()
@@ -77,7 +92,7 @@ func CreateSession(email string) (Session, error) {
 	return s, nil
 }
 
-func LookupSession(id string) Session {
+func LookupSession(id string) *Session {
 	sessionsMu.Lock()
 	defer sessionsMu.Unlock()
 
@@ -91,10 +106,12 @@ func DeleteSession(id string) {
 	delete(sessions, id)
 }
 
-func LoggedUser(req *http.Request) (email string) {
+const SessionCookieName = "session"
+
+func LoggedUser(req *http.Request) *User {
 	cookie, err := req.Cookie(SessionCookieName)
 	if err != nil {
-		return ""
+		return nil
 	}
-	return LookupSession(cookie.Value).Email
+	return LookupSession(cookie.Value).User
 }

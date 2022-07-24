@@ -54,6 +54,7 @@ func main() {
 	}
 	defer client.Disconnect(context.TODO())
 
+	users = client.Database("authofworld").Collection("users")
 	certificates = client.Database("authofworld").Collection("certificates")
 
 	err = loadTemplates("server/templates")
@@ -95,7 +96,7 @@ func allowCrossOrigin(handler httpHandler) httpHandler {
 }
 
 func indexHandler(w http.ResponseWriter, req *http.Request) {
-	templateData := map[string]string{"userName": LoggedUser(req)}
+	templateData := map[string]string{"userName": LoggedUser(req).Email}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	err := masterTemplate.ExecuteTemplate(w, "index", templateData)
@@ -143,8 +144,8 @@ func loginPost(w http.ResponseWriter, req *http.Request) {
 		err = errors.New("No password provided")
 		return
 	}
-	user := GetUser(email)
-	if user == (User{}) {
+	user := FindUser(email)
+	if user == nil {
 		err = errors.New("Invalid email or password")
 		return
 	}
@@ -153,7 +154,7 @@ func loginPost(w http.ResponseWriter, req *http.Request) {
 		err = errors.New("Invalid email or password")
 		return
 	}
-	s, err := CreateSession(email)
+	s, err := CreateSession(user)
 	if err != nil {
 		log.Println(err)
 		err = errors.New("Internal server error")
@@ -186,8 +187,8 @@ func logoutHandler(w http.ResponseWriter, req *http.Request) {
 func createCertsHandler(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	email := LoggedUser(req)
-	if email == "" {
+	user := LoggedUser(req)
+	if user == nil {
 		fmt.Fprintln(w, "You must be logged in to create certificates")
 		return
 	}
@@ -227,8 +228,8 @@ func certsPost(w http.ResponseWriter, req *http.Request) {
 		}
 	}()
 
-	email := LoggedUser(req)
-	if email == "" {
+	user := LoggedUser(req)
+	if user == nil {
 		err = errors.New("Must be logged in with business account")
 		return
 	}
@@ -244,7 +245,7 @@ func certsPost(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	err = CreateCertificates(numCerts, email, desc)
+	err = CreateCertificates(numCerts, user.Email, desc)
 	if err != nil {
 		return
 	}
