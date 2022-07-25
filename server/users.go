@@ -34,13 +34,16 @@ const (
 	Admin         = "admin"
 )
 
-func FindUser(email string) *User {
+func FindUser(email string) (*User, error) {
 	user := new(User)
 	err := users.FindOne(context.TODO(), bson.D{{"email", email}}).Decode(user)
-	if err != nil {
-		return nil
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
 	}
-	return user
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
 }
 
 // https://eager.io/blog/how-long-does-an-id-need-to-be/
@@ -113,5 +116,9 @@ func LoggedUser(req *http.Request) *User {
 	if err != nil {
 		return nil
 	}
-	return LookupSession(cookie.Value).User
+	s := LookupSession(cookie.Value)
+	if s == nil {
+		return nil
+	}
+	return s.User
 }

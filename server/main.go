@@ -96,7 +96,10 @@ func allowCrossOrigin(handler httpHandler) httpHandler {
 }
 
 func indexHandler(w http.ResponseWriter, req *http.Request) {
-	templateData := map[string]string{"userName": LoggedUser(req).Email}
+	templateData := make(map[string]string)
+	if u := LoggedUser(req); u != nil {
+		templateData["userName"] = u.Email
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	err := masterTemplate.ExecuteTemplate(w, "index", templateData)
@@ -144,7 +147,12 @@ func loginPost(w http.ResponseWriter, req *http.Request) {
 		err = errors.New("No password provided")
 		return
 	}
-	user := FindUser(email)
+	user, err := FindUser(email)
+	if err != nil {
+		log.Println(err)
+		err = errors.New("Internal server error")
+		return
+	}
 	if user == nil {
 		err = errors.New("Invalid email or password")
 		return
