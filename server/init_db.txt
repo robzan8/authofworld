@@ -1,0 +1,7 @@
+db.users.insertOne({
+	email: "rolex@rolex.com",
+	hashedPassword: "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=", // hello
+	role: "business"
+})
+
+// TODO: add index on users.email
