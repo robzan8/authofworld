@@ -1,7 +1,9 @@
 db.users.insertOne({
 	email: "rolex@rolex.com",
-	hashedPassword: "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=", // hello
+	hashedPassword: "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=", // hello
 	role: "business"
 })
 
-// TODO: add index on users.email
+// TODO:
+// add index on users.email
+// add index on certificates.creator adn owner

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+{{template "head" "Auth of World - Your Certificates"}}
+
+<body>
+  <table>
+    <tr>
+      <th>Id</th>
+      <th>Description</th>
+      <th>Creator</th>
+      <th>Owner</th>
+    </tr>
+    {{range .}}
+    <tr>
+      <td>{{.Id}}</td>
+      <td>{{.Description}}</td>
+      <td>{{.Creator}}</td>
+      <td>{{.Owner}}</td>
+    </tr>
+    {{end}}
+  </table>
+</body>
+
+</html>

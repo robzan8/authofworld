@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -11,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -62,7 +62,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	http.Handle("/", http.FileServer(http.Dir("./server/static")))
+	http.Handle("/assets/", http.StripPrefix("/assets/",
+		http.FileServer(http.Dir("./server/assets"))))
 	http.HandleFunc("/index", restrictMethod(indexHandler, http.MethodGet))
 	http.HandleFunc("/login", loginHandler)
 	http.HandleFunc("/logout", restrictMethod(logoutHandler, http.MethodGet))
@@ -95,14 +96,30 @@ func allowCrossOrigin(handler httpHandler) httpHandler {
 	}
 }
 
+func setContentHtml(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+}
+
+func handleInternalErr(w http.ResponseWriter, err error) {
+	log.Println(err)
+	w.WriteHeader(http.StatusInternalServerError)
+	fmt.Fprintln(w, "Internal server error")
+}
+
+func writeErr(w http.ResponseWriter, code int, msg string) {
+	w.WriteHeader(code)
+	fmt.Fprintln(w, msg)
+}
+
 func indexHandler(w http.ResponseWriter, req *http.Request) {
-	templateData := make(map[string]string)
+	setContentHtml(w)
+
+	userName := ""
 	if u := LoggedUser(req); u != nil {
-		templateData["userName"] = u.Email
+		userName = u.Email
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	err := masterTemplate.ExecuteTemplate(w, "index", templateData)
+	err := masterTemplate.ExecuteTemplate(w, "index", userName)
 	if err != nil {
 		log.Println(err)
 	}
@@ -121,7 +138,8 @@ func loginHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func loginGet(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	setContentHtml(w)
+
 	err := masterTemplate.ExecuteTemplate(w, "login", nil)
 	if err != nil {
 		log.Println(err)
@@ -129,43 +147,35 @@ func loginGet(w http.ResponseWriter, req *http.Request) {
 }
 
 func loginPost(w http.ResponseWriter, req *http.Request) {
-	var err error // beware of shadowing
-	defer func() {
-		if err != nil {
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			fmt.Fprintf(w, "%s", err)
-		}
-	}()
+	setContentHtml(w)
 
 	email := req.FormValue("email")
 	if email == "" {
-		err = errors.New("No email provided")
+		writeErr(w, http.StatusUnauthorized, "No email provided")
 		return
 	}
 	password := req.FormValue("password")
 	if password == "" {
-		err = errors.New("No password provided")
+		writeErr(w, http.StatusUnauthorized, "No password provided")
 		return
 	}
 	user, err := FindUser(email)
 	if err != nil {
-		log.Println(err)
-		err = errors.New("Internal server error")
+		handleInternalErr(w, err)
 		return
 	}
 	if user == nil {
-		err = errors.New("Invalid email or password")
+		writeErr(w, http.StatusUnauthorized, "Invalid email or password")
 		return
 	}
 	hash := HashPassword(password)
 	if hash != user.HashedPassword {
-		err = errors.New("Invalid email or password")
+		writeErr(w, http.StatusUnauthorized, "Invalid email or password")
 		return
 	}
 	s, err := CreateSession(user)
 	if err != nil {
-		log.Println(err)
-		err = errors.New("Internal server error")
+		handleInternalErr(w, err)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -174,11 +184,12 @@ func loginPost(w http.ResponseWriter, req *http.Request) {
 		Expires: s.Expires,
 	})
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintln(w, "Login was successful :)")
 }
 
 func logoutHandler(w http.ResponseWriter, req *http.Request) {
+	setContentHtml(w)
+
 	cookie, err := req.Cookie(SessionCookieName)
 	if err == nil && cookie != nil {
 		DeleteSession(cookie.Value)
@@ -188,16 +199,15 @@ func logoutHandler(w http.ResponseWriter, req *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintln(w, "Come back any time!")
 }
 
 func createCertsHandler(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	setContentHtml(w)
 
 	user := LoggedUser(req)
 	if user == nil {
-		fmt.Fprintln(w, "You must be logged in to create certificates")
+		writeErr(w, http.StatusUnauthorized, "You must be logged in to create certificates")
 		return
 	}
 
@@ -220,44 +230,64 @@ func certsHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func certsGet(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	err := masterTemplate.ExecuteTemplate(w, "certificates", nil)
+	setContentHtml(w)
+
+	user := LoggedUser(req)
+	if user == nil {
+		writeErr(w, http.StatusUnauthorized, "You must be logged in to see your certificates")
+		return
+	}
+
+	ctx := context.TODO()
+	cur, err := certificates.Find(ctx, bson.D{{"owner", user.Email}})
+	if err != nil {
+		handleInternalErr(w, err)
+		return
+	}
+	defer cur.Close(ctx)
+	var certs []Certificate
+	for cur.Next(ctx) {
+		var c Certificate
+		err := cur.Decode(&c)
+		if err != nil {
+			handleInternalErr(w, err)
+			return
+		}
+		certs = append(certs, c)
+	}
+
+	err = masterTemplate.ExecuteTemplate(w, "certificates", certs)
 	if err != nil {
 		log.Println(err)
 	}
 }
 
 func certsPost(w http.ResponseWriter, req *http.Request) {
-	var err error // beware of shadowing
-	defer func() {
-		if err != nil {
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			fmt.Fprintf(w, "%s", err)
-		}
-	}()
+	setContentHtml(w)
 
 	user := LoggedUser(req)
 	if user == nil {
-		err = errors.New("Must be logged in with business account")
+		writeErr(w, http.StatusUnauthorized, "Must be logged in with business account")
 		return
 	}
 
 	numCerts, err := strconv.Atoi(req.FormValue("numCerts"))
 	if err != nil || numCerts < 1 || numCerts > 100 {
-		err = errors.New("numCerts must be an integer between 1 and 100")
+		writeErr(w, http.StatusUnprocessableEntity,
+			"numCerts must be an integer between 1 and 100")
 		return
 	}
 	desc := req.FormValue("description")
 	if desc == "" {
-		err = errors.New("No product description provided")
+		writeErr(w, http.StatusUnprocessableEntity, "No product description provided")
 		return
 	}
 
 	err = CreateCertificates(numCerts, user.Email, desc)
 	if err != nil {
+		handleInternalErr(w, err)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, "%d certificates created!", numCerts)
 }

@@ -23,7 +23,7 @@ type User struct {
 
 func HashPassword(p string) string {
 	hash := sha256.Sum256([]byte(p))
-	return base64.URLEncoding.EncodeToString(hash[:])
+	return base64.StdEncoding.EncodeToString(hash[:])
 }
 
 type Role string
