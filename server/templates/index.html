@@ -3,10 +3,14 @@
 {{template "head" "Auth of World"}}
 
 <body>
-  {{if eq . ""}}
-    Login here!
+  {{if eq . nil}}
+    <a href="/login">Login here!</a>
   {{else}}
-    Welcome {{.}} :)
+    <p>Welcome {{.Email}} :)</p>
+    <p><a href="/certificates">See your certificates</a></p>
+    {{if eq .Role "business"}}
+      <p><a href="/create-certificates">Create new certificates</a></p>
+    {{end}}
   {{end}}
 </body>
 

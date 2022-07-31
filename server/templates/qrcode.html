@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+{{template "head" "Auth of World - QRCode"}}
+
+<body>
+  <p>QRCode for https://authofworld.com/cert/{{.}}</p>
+  <div id="qrcode"></div>
+
+  <script src="/assets/qrcode.min.js"></script>
+  <script>
+    new QRCode(document.getElementById("qrcode"), "https://authofworld.com/cert/{{.}}");
+  </script>
+</body>
+
+</html>

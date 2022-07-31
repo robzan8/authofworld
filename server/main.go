@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 
@@ -64,11 +65,12 @@ func main() {
 
 	http.Handle("/assets/", http.StripPrefix("/assets/",
 		http.FileServer(http.Dir("./server/assets"))))
-	http.HandleFunc("/index", restrictMethod(indexHandler, http.MethodGet))
+	http.HandleFunc("/", restrictMethod(rootHandler, http.MethodGet))
 	http.HandleFunc("/login", loginHandler)
 	http.HandleFunc("/logout", restrictMethod(logoutHandler, http.MethodGet))
 	http.HandleFunc("/create-certificates", restrictMethod(createCertsHandler, http.MethodGet))
 	http.HandleFunc("/certificates", certsHandler)
+	http.HandleFunc("/qrcode/", restrictMethod(qrcodeHandler, http.MethodGet))
 
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
@@ -111,17 +113,20 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	fmt.Fprintln(w, msg)
 }
 
-func indexHandler(w http.ResponseWriter, req *http.Request) {
+func rootHandler(w http.ResponseWriter, req *http.Request) {
 	setContentHtml(w)
 
-	userName := ""
-	if u := LoggedUser(req); u != nil {
-		userName = u.Email
+	if req.URL.Path != "/" {
+		http.NotFound(w, req)
+		return
 	}
-
-	err := masterTemplate.ExecuteTemplate(w, "index", userName)
+	var userData interface{}
+	if u := LoggedUser(req); u != nil {
+		userData = u
+	}
+	err := masterTemplate.ExecuteTemplate(w, "index", userData)
 	if err != nil {
-		log.Println(err)
+		handleInternalErr(w, err)
 	}
 }
 
@@ -142,7 +147,7 @@ func loginGet(w http.ResponseWriter, req *http.Request) {
 
 	err := masterTemplate.ExecuteTemplate(w, "login", nil)
 	if err != nil {
-		log.Println(err)
+		handleInternalErr(w, err)
 	}
 }
 
@@ -213,7 +218,7 @@ func createCertsHandler(w http.ResponseWriter, req *http.Request) {
 
 	err := masterTemplate.ExecuteTemplate(w, "create-certificates", nil)
 	if err != nil {
-		log.Println(err)
+		handleInternalErr(w, err)
 	}
 }
 
@@ -239,7 +244,7 @@ func certsGet(w http.ResponseWriter, req *http.Request) {
 	}
 
 	ctx := context.TODO()
-	cur, err := certificates.Find(ctx, bson.D{{"owner", user.Email}})
+	cur, err := certificates.Find(ctx, bson.D{{"creator", user.Email}})
 	if err != nil {
 		handleInternalErr(w, err)
 		return
@@ -258,7 +263,7 @@ func certsGet(w http.ResponseWriter, req *http.Request) {
 
 	err = masterTemplate.ExecuteTemplate(w, "certificates", certs)
 	if err != nil {
-		log.Println(err)
+		handleInternalErr(w, err)
 	}
 }
 
@@ -290,4 +295,39 @@ func certsPost(w http.ResponseWriter, req *http.Request) {
 	}
 
 	fmt.Fprintf(w, "%d certificates created!", numCerts)
+}
+
+func qrcodeHandler(w http.ResponseWriter, req *http.Request) {
+	setContentHtml(w)
+
+	if m, _ := path.Match("/qrcode/*", req.URL.Path); !m {
+		http.NotFound(w, req)
+		return
+	}
+	user := LoggedUser(req)
+	if user == nil {
+		writeErr(w, http.StatusUnauthorized, "You must be logged in")
+		return
+	}
+	_, certId := path.Split(req.URL.Path)
+	var c Certificate
+	err := certificates.FindOne(context.TODO(), bson.D{{"_id", certId}}).Decode(&c)
+	if err == mongo.ErrNoDocuments {
+		http.NotFound(w, req)
+		return
+	}
+	if err != nil {
+		handleInternalErr(w, err)
+		return
+	}
+	if c.Creator != user.Email {
+		writeErr(w, http.StatusForbidden,
+			"Only the creator can see the QRCode of a certificate")
+		return
+	}
+
+	err = masterTemplate.ExecuteTemplate(w, "qrcode", certId)
+	if err != nil {
+		handleInternalErr(w, err)
+	}
 }

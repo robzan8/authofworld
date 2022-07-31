@@ -5,17 +5,17 @@
 <body>
   <table>
     <tr>
-      <th>Id</th>
-      <th>Description</th>
       <th>Creator</th>
       <th>Owner</th>
+      <th>Description</th>
+      <th>QRCode</th>
     </tr>
     {{range .}}
     <tr>
-      <td>{{.Id}}</td>
-      <td>{{.Description}}</td>
       <td>{{.Creator}}</td>
       <td>{{.Owner}}</td>
+      <td>{{.Description}}</td>
+      <td><a href="/qrcode/{{.Id}}">{{.Id}}</a></td>
     </tr>
     {{end}}
   </table>
