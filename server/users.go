@@ -36,7 +36,7 @@ const (
 
 func FindUser(email string) (*User, error) {
 	user := new(User)
-	err := users.FindOne(context.TODO(), bson.D{{"email", email}}).Decode(user)
+	err := users.FindOne(context.TODO(), bson.D{{Key: "email", Value: email}}).Decode(user)
 	if err == mongo.ErrNoDocuments {
 		return nil, nil
 	}

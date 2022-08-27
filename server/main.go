@@ -244,7 +244,7 @@ func certsGet(w http.ResponseWriter, req *http.Request) {
 	}
 
 	ctx := context.TODO()
-	cur, err := certificates.Find(ctx, bson.D{{"creator", user.Email}})
+	cur, err := certificates.Find(ctx, bson.D{{Key: "creator", Value: user.Email}})
 	if err != nil {
 		handleInternalErr(w, err)
 		return
@@ -311,7 +311,7 @@ func qrcodeHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	_, certId := path.Split(req.URL.Path)
 	var c Certificate
-	err := certificates.FindOne(context.TODO(), bson.D{{"_id", certId}}).Decode(&c)
+	err := certificates.FindOne(context.TODO(), bson.D{{Key: "_id", Value: certId}}).Decode(&c)
 	if err == mongo.ErrNoDocuments {
 		http.NotFound(w, req)
 		return
