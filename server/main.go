@@ -67,6 +67,7 @@ func main() {
 		http.FileServer(http.Dir("./server/assets"))))
 	http.HandleFunc("/", restrictMethod(rootHandler, http.MethodGet))
 	http.HandleFunc("/login", loginHandler)
+	http.HandleFunc("/register", registerHandler)
 	http.HandleFunc("/logout", restrictMethod(logoutHandler, http.MethodGet))
 	http.HandleFunc("/create-certificates", restrictMethod(createCertsHandler, http.MethodGet))
 	http.HandleFunc("/certificates", certsHandler)
@@ -330,4 +331,61 @@ func qrcodeHandler(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		handleInternalErr(w, err)
 	}
+}
+
+func registerHandler(w http.ResponseWriter, req *http.Request) {
+	switch req.Method {
+	case http.MethodGet:
+		registerGet(w, req)
+	case http.MethodPost:
+		registerPost(w, req)
+	default:
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "Unsupported method %s", req.Method)
+	}
+}
+
+func registerGet(w http.ResponseWriter, req *http.Request) {
+	setContentHtml(w)
+
+	err := masterTemplate.ExecuteTemplate(w, "register", nil)
+	if err != nil {
+		handleInternalErr(w, err)
+	}
+}
+
+func registerPost(w http.ResponseWriter, req *http.Request) {
+	setContentHtml(w)
+
+	email := req.FormValue("email")
+	if email == "" {
+		writeErr(w, http.StatusUnauthorized, "No email provided")
+		return
+	}
+	password := req.FormValue("password")
+	if password == "" {
+		writeErr(w, http.StatusUnauthorized, "No password provided")
+		return
+	}
+	user, err := FindUser(email)
+	if err != nil {
+		handleInternalErr(w, err)
+		return
+	}
+	if user != nil {
+		writeErr(w, http.StatusUnprocessableEntity, "Email already in use")
+		return
+	}
+	user = &User{
+		Email:          email,
+		HashedPassword: HashPassword(password),
+		Role:           "",
+	}
+
+	_, err = users.InsertOne(context.TODO(), user)
+	if err != nil {
+		handleInternalErr(w, err)
+		return
+	}
+	fmt.Fprintln(w, "User created :)")
 }
