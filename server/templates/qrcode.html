@@ -6,7 +6,7 @@
   <p>QRCode for https://authofworld.com/cert/{{.}}</p>
   <div id="qrcode"></div>
 
-  <script src="/assets/qrcode.min.js"></script>
+  <script src="/static/qrcode.min.js"></script>
   <script>
     new QRCode(document.getElementById("qrcode"), "https://authofworld.com/cert/{{.}}");
   </script>

@@ -63,126 +63,67 @@ func main() {
 		log.Fatal(err)
 	}
 
-	http.Handle("/assets/", http.StripPrefix("/assets/",
-		http.FileServer(http.Dir("./server/assets"))))
-	http.HandleFunc("/", restrictMethod(rootHandler, http.MethodGet))
-	http.HandleFunc("/login", loginHandler)
-	http.HandleFunc("/register", registerHandler)
-	http.HandleFunc("/logout", restrictMethod(logoutHandler, http.MethodGet))
-	http.HandleFunc("/create-certificates", restrictMethod(createCertsHandler, http.MethodGet))
-	http.HandleFunc("/certificates", certsHandler)
-	http.HandleFunc("/qrcode/", restrictMethod(qrcodeHandler, http.MethodGet))
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./server/static"))))
+	http.Handle("/", NewHtmlHandler(rootHandler, http.MethodGet))
+	http.Handle("/login", NewHtmlHandler(loginHandler, ""))
+	http.Handle("/register", NewHtmlHandler(registerHandler, ""))
+	http.Handle("/logout", NewHtmlHandler(logoutHandler, http.MethodGet))
+	http.Handle("/create-certificates", NewHtmlHandler(createCertsHandler, http.MethodGet))
+	http.Handle("/certificates", NewHtmlHandler(certsHandler, ""))
+	http.Handle("/qrcode/", NewHtmlHandler(qrcodeHandler, http.MethodGet))
 
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
-type httpHandler = func(http.ResponseWriter, *http.Request)
-
-func restrictMethod(handler httpHandler, method string) httpHandler {
-	return func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == method {
-			handler(w, req)
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Unsupported method %s", req.Method)
-	}
-}
-
-func allowCrossOrigin(handler httpHandler) httpHandler {
-	return func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		if req.Method == http.MethodOptions {
-			return // OK
-		}
-		handler(w, req)
-	}
-}
-
-func setContentHtml(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-}
-
-func handleInternalErr(w http.ResponseWriter, err error) {
-	log.Println(err)
-	w.WriteHeader(http.StatusInternalServerError)
-	fmt.Fprintln(w, "Internal server error")
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	w.WriteHeader(code)
-	fmt.Fprintln(w, msg)
-}
-
-func rootHandler(w http.ResponseWriter, req *http.Request) {
-	setContentHtml(w)
-
+func rootHandler(w http.ResponseWriter, req *http.Request) error {
 	if req.URL.Path != "/" {
-		http.NotFound(w, req)
-		return
+		return NewError(http.StatusNotFound)
 	}
 	var userData interface{}
 	if u := LoggedUser(req); u != nil {
 		userData = u
 	}
-	err := masterTemplate.ExecuteTemplate(w, "index", userData)
-	if err != nil {
-		handleInternalErr(w, err)
-	}
+	return masterTemplate.ExecuteTemplate(w, "index", userData)
 }
 
-func loginHandler(w http.ResponseWriter, req *http.Request) {
+func loginHandler(w http.ResponseWriter, req *http.Request) error {
 	switch req.Method {
 	case http.MethodGet:
-		loginGet(w, req)
+		return loginGet(w, req)
 	case http.MethodPost:
-		loginPost(w, req)
+		return loginPost(w, req)
 	default:
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Unsupported method %s", req.Method)
+		return FormatError(http.StatusBadRequest, "Unsupported method %s", req.Method)
 	}
 }
 
-func loginGet(w http.ResponseWriter, req *http.Request) {
-	setContentHtml(w)
-
-	err := masterTemplate.ExecuteTemplate(w, "login", nil)
-	if err != nil {
-		handleInternalErr(w, err)
-	}
+func loginGet(w http.ResponseWriter, req *http.Request) error {
+	return masterTemplate.ExecuteTemplate(w, "login", nil)
 }
 
-func loginPost(w http.ResponseWriter, req *http.Request) {
-	setContentHtml(w)
-
+func loginPost(w http.ResponseWriter, req *http.Request) error {
 	email := req.FormValue("email")
 	if email == "" {
-		writeErr(w, http.StatusUnauthorized, "No email provided")
-		return
+		return FormatError(http.StatusUnauthorized, "No email provided")
 	}
 	password := req.FormValue("password")
 	if password == "" {
-		writeErr(w, http.StatusUnauthorized, "No password provided")
-		return
+		return FormatError(http.StatusUnauthorized, "No password provided")
 	}
 	user, err := FindUser(email)
 	if err != nil {
-		handleInternalErr(w, err)
-		return
+		return err
 	}
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "Invalid email or password")
-		return
+		return FormatError(http.StatusUnauthorized, "Invalid email or password")
 	}
 	hash := HashPassword(password)
 	if hash != user.HashedPassword {
-		writeErr(w, http.StatusUnauthorized, "Invalid email or password")
-		return
+		return FormatError(http.StatusUnauthorized, "Invalid email or password")
 	}
 	s, err := CreateSession(user)
 	if err != nil {
-		handleInternalErr(w, err)
-		return
+		return err
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:    SessionCookieName,
@@ -191,11 +132,10 @@ func loginPost(w http.ResponseWriter, req *http.Request) {
 	})
 
 	fmt.Fprintln(w, "Login was successful :)")
+	return nil
 }
 
-func logoutHandler(w http.ResponseWriter, req *http.Request) {
-	setContentHtml(w)
-
+func logoutHandler(w http.ResponseWriter, req *http.Request) error {
 	cookie, err := req.Cookie(SessionCookieName)
 	if err == nil && cookie != nil {
 		DeleteSession(cookie.Value)
@@ -206,49 +146,38 @@ func logoutHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	fmt.Fprintln(w, "Come back any time!")
+	return nil
 }
 
-func createCertsHandler(w http.ResponseWriter, req *http.Request) {
-	setContentHtml(w)
-
+func createCertsHandler(w http.ResponseWriter, req *http.Request) error {
 	user := LoggedUser(req)
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "You must be logged in to create certificates")
-		return
+		return FormatError(http.StatusUnauthorized, "You must be logged in to create certificates")
 	}
-
-	err := masterTemplate.ExecuteTemplate(w, "create-certificates", nil)
-	if err != nil {
-		handleInternalErr(w, err)
-	}
+	return masterTemplate.ExecuteTemplate(w, "create-certificates", nil)
 }
 
-func certsHandler(w http.ResponseWriter, req *http.Request) {
+func certsHandler(w http.ResponseWriter, req *http.Request) error {
 	switch req.Method {
 	case http.MethodGet:
-		certsGet(w, req)
+		return certsGet(w, req)
 	case http.MethodPost:
-		certsPost(w, req)
+		return certsPost(w, req)
 	default:
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Unsupported method %s", req.Method)
+		return FormatError(http.StatusBadRequest, "Unsupported method %s", req.Method)
 	}
 }
 
-func certsGet(w http.ResponseWriter, req *http.Request) {
-	setContentHtml(w)
-
+func certsGet(w http.ResponseWriter, req *http.Request) error {
 	user := LoggedUser(req)
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "You must be logged in to see your certificates")
-		return
+		return FormatError(http.StatusUnauthorized, "You must be logged in to see your certificates")
 	}
 
 	ctx := context.TODO()
 	cur, err := certificates.Find(ctx, bson.D{{Key: "creator", Value: user.Email}})
 	if err != nil {
-		handleInternalErr(w, err)
-		return
+		return err
 	}
 	defer cur.Close(ctx)
 	var certs []Certificate
@@ -256,125 +185,92 @@ func certsGet(w http.ResponseWriter, req *http.Request) {
 		var c Certificate
 		err := cur.Decode(&c)
 		if err != nil {
-			handleInternalErr(w, err)
-			return
+			return err
 		}
 		certs = append(certs, c)
 	}
 
-	err = masterTemplate.ExecuteTemplate(w, "certificates", certs)
-	if err != nil {
-		handleInternalErr(w, err)
-	}
+	return masterTemplate.ExecuteTemplate(w, "certificates", certs)
 }
 
-func certsPost(w http.ResponseWriter, req *http.Request) {
-	setContentHtml(w)
-
+func certsPost(w http.ResponseWriter, req *http.Request) error {
 	user := LoggedUser(req)
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "Must be logged in with business account")
-		return
+		return FormatError(http.StatusUnauthorized, "Must be logged in with business account")
 	}
 
 	numCerts, err := strconv.Atoi(req.FormValue("numCerts"))
 	if err != nil || numCerts < 1 || numCerts > 100 {
-		writeErr(w, http.StatusUnprocessableEntity,
-			"numCerts must be an integer between 1 and 100")
-		return
+		return FormatError(http.StatusUnprocessableEntity, "numCerts must be an integer between 1 and 100")
 	}
 	desc := req.FormValue("description")
 	if desc == "" {
-		writeErr(w, http.StatusUnprocessableEntity, "No product description provided")
-		return
+		return FormatError(http.StatusUnprocessableEntity, "No product description provided")
 	}
 
 	err = CreateCertificates(numCerts, user.Email, desc)
 	if err != nil {
-		handleInternalErr(w, err)
-		return
+		return err
 	}
 
 	fmt.Fprintf(w, "%d certificates created!", numCerts)
+	return nil
 }
 
-func qrcodeHandler(w http.ResponseWriter, req *http.Request) {
-	setContentHtml(w)
-
+func qrcodeHandler(w http.ResponseWriter, req *http.Request) error {
 	if m, _ := path.Match("/qrcode/*", req.URL.Path); !m {
-		http.NotFound(w, req)
-		return
+		return NewError(http.StatusNotFound)
 	}
 	user := LoggedUser(req)
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "You must be logged in")
-		return
+		return FormatError(http.StatusUnauthorized, "You must be logged in")
 	}
 	_, certId := path.Split(req.URL.Path)
 	var c Certificate
 	err := certificates.FindOne(context.TODO(), bson.D{{Key: "_id", Value: certId}}).Decode(&c)
 	if err == mongo.ErrNoDocuments {
-		http.NotFound(w, req)
-		return
+		return NewError(http.StatusNotFound)
 	}
 	if err != nil {
-		handleInternalErr(w, err)
-		return
+		return err
 	}
 	if c.Creator != user.Email {
-		writeErr(w, http.StatusForbidden,
-			"Only the creator can see the QRCode of a certificate")
-		return
+		return FormatError(http.StatusForbidden, "Only the creator can see the QRCode of a certificate")
 	}
 
-	err = masterTemplate.ExecuteTemplate(w, "qrcode", certId)
-	if err != nil {
-		handleInternalErr(w, err)
-	}
+	return masterTemplate.ExecuteTemplate(w, "qrcode", certId)
 }
 
-func registerHandler(w http.ResponseWriter, req *http.Request) {
+func registerHandler(w http.ResponseWriter, req *http.Request) error {
 	switch req.Method {
 	case http.MethodGet:
-		registerGet(w, req)
+		return registerGet(w, req)
 	case http.MethodPost:
-		registerPost(w, req)
+		return registerPost(w, req)
 	default:
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Unsupported method %s", req.Method)
+		return FormatError(http.StatusBadRequest, "Unsupported method %s", req.Method)
 	}
 }
 
-func registerGet(w http.ResponseWriter, req *http.Request) {
-	setContentHtml(w)
-
-	err := masterTemplate.ExecuteTemplate(w, "register", nil)
-	if err != nil {
-		handleInternalErr(w, err)
-	}
+func registerGet(w http.ResponseWriter, req *http.Request) error {
+	return masterTemplate.ExecuteTemplate(w, "register", nil)
 }
 
-func registerPost(w http.ResponseWriter, req *http.Request) {
-	setContentHtml(w)
-
+func registerPost(w http.ResponseWriter, req *http.Request) error {
 	email := req.FormValue("email")
 	if email == "" {
-		writeErr(w, http.StatusUnauthorized, "No email provided")
-		return
+		return FormatError(http.StatusUnauthorized, "No email provided")
 	}
 	password := req.FormValue("password")
 	if password == "" {
-		writeErr(w, http.StatusUnauthorized, "No password provided")
-		return
+		return FormatError(http.StatusUnauthorized, "No password provided")
 	}
 	user, err := FindUser(email)
 	if err != nil {
-		handleInternalErr(w, err)
-		return
+		return err
 	}
 	if user != nil {
-		writeErr(w, http.StatusUnprocessableEntity, "Email already in use")
-		return
+		return FormatError(http.StatusUnprocessableEntity, "Email already in use")
 	}
 	user = &User{
 		Email:          email,
@@ -384,8 +280,8 @@ func registerPost(w http.ResponseWriter, req *http.Request) {
 
 	_, err = users.InsertOne(context.TODO(), user)
 	if err != nil {
-		handleInternalErr(w, err)
-		return
+		return err
 	}
 	fmt.Fprintln(w, "User created :)")
+	return nil
 }
